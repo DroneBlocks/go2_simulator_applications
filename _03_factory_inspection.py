@@ -13,8 +13,6 @@ if __name__ == "__main__":
 
     robot.load_factory_scene()
 
-    
-
     # Simulate
     joint_pos_targets = robot.initial_joint_positions
     dt = 0.002

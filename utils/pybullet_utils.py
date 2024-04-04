@@ -1,15 +1,17 @@
 import pybullet as p
 import time
 import numpy as np
-print("{REMINDER] WE NEED TO INSTRUCT THE USER TO INSTALL SCIPY")
+print("{REMINDER] WE NEED TO INSTRUCT THE USER TO INSTALL SCIPY, CV2, PIL")
 from scipy.spatial.transform import Rotation
 
 
 # Let's create a Robot class to contain the generic functionality
 class Robot:
-    def __init__(self, robot_name, fix_base=False):
+    def __init__(self, robot_name, fix_base=False, gui=True, gui_follows_robot=False):
 
         ## Add reset function
+        self.gui = gui
+        self.gui_follows_robot = gui_follows_robot
 
         self.load_params(robot_name)
 
@@ -24,6 +26,7 @@ class Robot:
         )
 
         self.time_counter = 0
+        self.prev_time = time.time()
 
         
     def get_joint_states(self):
@@ -35,6 +38,9 @@ class Robot:
     def get_base_position(self):
         robot_pos, robot_ori = p.getBasePositionAndOrientation(self.robot)
         return robot_pos, robot_ori
+    
+    def set_base_position(self, robot_pos, robot_ori):
+        p.resetBasePositionAndOrientation(self.robot, robot_pos, robot_ori)
 
     def step_with_torques(self, torques):
         p.setJointMotorControlArray(bodyIndex=self.robot,
@@ -42,10 +48,34 @@ class Robot:
                             controlMode=p.TORQUE_CONTROL,
                             forces=torques)
         p.stepSimulation()
-        if self.time_counter % 50 == 0:
-            self.step_camera()
-        time.sleep(1./500.)
+        # if self.time_counter % 50 == 0:
+        #     self.step_camera()
+        # time.sleep(1./500.)
+        # Calculate the elapsed time since the last step
+        current_time = time.time()
+        elapsed_time = current_time - self.prev_time
+        self.prev_time = current_time
+
+        # Calculate the sleep time to maintain the desired frequency
+        sleep_time = 1./500. - elapsed_time
+        if sleep_time > 0:
+            time.sleep(sleep_time)
         self.time_counter += 1
+
+        if self.gui_follows_robot:
+            camera_distance = 0.8
+            robot_pos, robot_ori = self.get_base_position()
+            # Camera parameters
+            cameraDistance = camera_distance    # How far the camera is from the target
+            cameraYaw = 45        # Yaw angle in degrees
+            cameraPitch = -45     # Pitch angle in degrees
+            cameraTargetPosition = [robot_pos[0],
+                                    robot_pos[1],
+                                    robot_pos[2] - 0.3]  # Focus just below the base position
+
+            # Set the camera view
+            p.resetDebugVisualizerCamera(cameraDistance, cameraYaw, cameraPitch, cameraTargetPosition)
+
 
     def step_with_pd_targets(self, joint_pos_targets, Kp, Kd):
         joint_pos, joint_vel = self.get_joint_states()
@@ -99,9 +129,17 @@ class Robot:
     ):
 
         # Start PyBullet in GUI mode
-        physicsClient = p.connect(p.GUI)
-        p.configureDebugVisualizer(p.COV_ENABLE_GUI,1)
-        p.configureDebugVisualizer(p.COV_ENABLE_DEPTH_BUFFER_PREVIEW, 1)
+        if self.gui:
+            optionstring = '--width={} --height={}'.format(
+                256, 256)
+            physicsClient = p.connect(p.GUI, optionstring)
+            p.configureDebugVisualizer(p.COV_ENABLE_GUI,0)
+            # p.configureDebugVisualizer(p.COV_ENABLE_DEPTH_BUFFER_PREVIEW, 0)
+        else:
+            optionstring = '--width={} --height={}'.format(
+                256, 256)
+            physicsClient = p.connect(p.DIRECT, optionstring)
+            p.configureDebugVisualizer(p.COV_ENABLE_GUI,0)
 
         p.configureDebugVisualizer(rgbBackground=[0, 0, 0])
         p.setPhysicsEngineParameter(fixedTimeStep=0.002,
@@ -157,31 +195,64 @@ class Robot:
 
         return robot
     
-    def step_camera(self):
-        width = 128
-        height = 128
+    def get_camera_image(self, viewpoint="AERIAL"):
 
-        fov = 60
-        aspect = width / height
-        near = 0.02
-        far = 1
 
-        robot_pos, robot_ori = self.get_base_position()
-        rot = Rotation.from_quat(robot_ori)
-        default_direction = np.array([0.4, 0, -0.2])
-        cam_vec = rot.apply(default_direction)
+        if viewpoint == "AERIAL":
+            width = 256
+            height = 256
 
-        # camera_pos = [robot_pos[0], robot_pos[1], robot_pos[2]]
-        s1 = -1.0
-        s2 = 1.3
-        camera_pos = [robot_pos[0] + s1*cam_vec[0], 
-                         robot_pos[1] + s1*cam_vec[1], 
-                         robot_pos[2] + s1*cam_vec[2]]
-        camera_lookat = [robot_pos[0] + s2*cam_vec[0], 
-                         robot_pos[1] + s2*cam_vec[1], 
-                         robot_pos[2] + s2*cam_vec[2]]
-        # camera_pos = [0, 0, 0]
-        # camera_lookat = [0.5, 0, 0]
+            fov = 15
+            aspect = width / height
+            near = 0.02
+            far = 10.5
+
+            robot_pos, robot_ori = self.get_base_position()
+
+            camera_pos = [0.01, 0.01, 10.0]
+            camera_lookat = [0, 0, 0]
+        
+        elif viewpoint == "FOLLOWING":
+            width = 128
+            height = 128
+
+            fov = 15
+            aspect = width / height
+            near = 10.0
+            far = 15.5
+
+            robot_pos, robot_ori = self.get_base_position()
+
+            camera_pos = [robot_pos[0] + 0.01, 
+                            robot_pos[1] + 0.01, 
+                            robot_pos[2] + 15.0]
+            camera_lookat = [robot_pos[0], 
+                            robot_pos[1], 
+                            robot_pos[2]]
+
+        elif viewpoint == "FIRST_PERSON":
+            width = 128
+            height = 128
+
+            fov = 60
+            aspect = width / height
+            near = 0.02
+            far = 4
+
+            robot_pos, robot_ori = self.get_base_position()
+            rot = Rotation.from_quat(robot_ori)
+            default_direction = np.array([0.4, 0, 0.0])
+            cam_vec = rot.apply(default_direction)
+
+            # camera_pos = [robot_pos[0], robot_pos[1], robot_pos[2]]
+            s1 = 1.0
+            s2 = 1.3
+            camera_pos = [robot_pos[0] + s1*cam_vec[0], 
+                            robot_pos[1] + s1*cam_vec[1], 
+                            robot_pos[2] + s1*cam_vec[2]]
+            camera_lookat = [robot_pos[0] + s2*cam_vec[0], 
+                            robot_pos[1] + s2*cam_vec[1], 
+                            robot_pos[2] + s2*cam_vec[2]]
         
 
         self.view_matrix = p.computeViewMatrix(camera_pos, camera_lookat, [0, 0, 1])
@@ -189,8 +260,13 @@ class Robot:
 
         # Get depth values using the OpenGL renderer
         images = p.getCameraImage(width, height, self.view_matrix, self.projection_matrix, renderer=p.ER_BULLET_HARDWARE_OPENGL)
+        # images = p.getCameraImage(width, height, self.view_matrix, self.projection_matrix, renderer=p.ER_TINY_RENDERER, shadow=0)
         depth_buffer_opengl = np.reshape(images[3], [width, height])
         depth_opengl = far * near / (far - (far - near) * depth_buffer_opengl)
+
+        rgb_buffer_opengl = np.reshape(images[2], [width, height, 4]).astype(np.float32)[:, :, [2, 1, 0]] / 255.0
+
+        return rgb_buffer_opengl, depth_opengl
 
         # # Get depth values using Tiny renderer
         # images = p.getCameraImage(width, height, self.view_matrix, self.projection_matrix, renderer=p.ER_TINY_RENDERER)

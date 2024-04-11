@@ -3,6 +3,7 @@ import time
 import numpy as np
 print("{REMINDER] WE NEED TO INSTRUCT THE USER TO INSTALL SCIPY, CV2, PIL")
 from scipy.spatial.transform import Rotation
+import cv2
 
 
 # Let's create a Robot class to contain the generic functionality
@@ -218,14 +219,18 @@ class Robot:
 
             fov = 15
             aspect = width / height
-            near = 10.0
-            far = 15.5
+            near = 25.0
+            far = 30.5
 
             robot_pos, robot_ori = self.get_base_position()
+            
+            rot = Rotation.from_quat(robot_ori)
+            default_direction = np.array([0.4, 0, 0.0])
+            cam_vec = rot.apply(default_direction)
 
-            camera_pos = [robot_pos[0] + 0.01, 
-                            robot_pos[1] + 0.01, 
-                            robot_pos[2] + 15.0]
+            camera_pos = [robot_pos[0] - 0.01 * cam_vec[0], 
+                            robot_pos[1] - 0.01 * cam_vec[1], 
+                            robot_pos[2] + 30.0]
             camera_lookat = [robot_pos[0], 
                             robot_pos[1], 
                             robot_pos[2]]
@@ -265,6 +270,33 @@ class Robot:
         depth_opengl = far * near / (far - (far - near) * depth_buffer_opengl)
 
         rgb_buffer_opengl = np.reshape(images[2], [width, height, 4]).astype(np.float32)[:, :, [2, 1, 0]] / 255.0
+
+        
+        if viewpoint == "FOLLOWING":
+            robot_pixels_length, robot_pixels_width = 20, 14
+
+            # Calculate the center coordinates of the depth_opengl array
+            center_x = depth_opengl.shape[1] // 2
+            center_y = depth_opengl.shape[0] // 2
+
+            # Create a grid of coordinates for the depth_opengl array
+            x, y = np.meshgrid(np.arange(depth_opengl.shape[1]), np.arange(depth_opengl.shape[0]))
+
+            # Translate the coordinates so that the origin is at the center of the array
+            x = x - center_x
+            y = y - center_y
+
+            # Create a mask for the robot's location
+            mask = (np.abs(y) <= robot_pixels_length // 2) & (np.abs(x) <= robot_pixels_width // 2)
+
+            # normalize the depth image
+            depth_opengl = (depth_opengl - 25) / (30.5 - 25)
+
+            # Apply the mask to the depth_opengl array
+            # depth_opengl = np.copy(depth_opengl)
+            depth_opengl[mask] = depth_opengl.max()
+
+            
 
         return rgb_buffer_opengl, depth_opengl
 

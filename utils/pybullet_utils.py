@@ -1,7 +1,6 @@
 import pybullet as p
 import time
 import numpy as np
-print("{REMINDER] WE NEED TO INSTRUCT THE USER TO INSTALL SCIPY, CV2, PIL")
 from scipy.spatial.transform import Rotation
 import cv2
 
@@ -317,3 +316,15 @@ class Robot:
                                useFixedBase=True,
                                globalScaling=0.01
                                )
+
+    
+    def load_boxes(self):
+        for i in range(10):
+            rand_x = np.random.uniform()
+            rand_y = np.random.uniform()
+            factoryId = p.loadURDF("assets/box.urdf", 
+                                basePosition=[rand_x, rand_y, 1.0], 
+                                baseOrientation=p.getQuaternionFromEuler([1.57, 0, 0]),
+                                useFixedBase=False,
+                                globalScaling=1.0
+                                )
